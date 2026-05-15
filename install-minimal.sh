@@ -19,6 +19,19 @@ done
 
 step() { echo ""; echo "━━━ $* ━━━"; }
 
+# 主动 source brew env (新 shell 默认 PATH 没含 /opt/homebrew/bin)
+if [ -x /opt/homebrew/bin/brew ]; then
+  eval "$(/opt/homebrew/bin/brew shellenv)"
+elif [ -x /usr/local/bin/brew ]; then
+  eval "$(/usr/local/bin/brew shellenv)"
+fi
+# brew 的 node@20 是 keg-only, 需手动加 PATH
+if [ -d /opt/homebrew/opt/node@20/bin ]; then
+  export PATH="/opt/homebrew/opt/node@20/bin:$PATH"
+elif [ -d /usr/local/opt/node@20/bin ]; then
+  export PATH="/usr/local/opt/node@20/bin:$PATH"
+fi
+
 # [1/5] 检查必备工具
 step "[1/5] 检查环境"
 for cmd in node npm curl tar python3; do
