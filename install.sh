@@ -39,13 +39,41 @@ echo "  ✓ macOS $OS_VER ($ARCH)"
 
 # [2/8] Xcode CLT
 print_step "[2/8] Xcode Command Line Tools"
-if xcode-select -p &>/dev/null; then
-  echo "  ✓ 已安装"
+if xcode-select -p &>/dev/null && [ -x "$(xcode-select -p)/usr/bin/git" ]; then
+  echo "  ✓ 已安装 ($(xcode-select -p))"
 else
-  echo "  唤起系统安装对话框..."
-  xcode-select --install || true
-  echo "  请在弹出窗口点「安装」, 完成后重跑此脚本"
-  exit 0
+  echo "  CLT 未装, 自动启动安装..."
+  echo "  (需要你 Mac 登录密码, 提示 Password 时输入)"
+
+  # macOS 13+ trick: 建 magic file 让 softwareupdate 列出 CLT
+  sudo touch /tmp/.com.apple.dt.CommandLineTools.installondemand.in-progress
+
+  echo "  拉取 CLT 列表 (5-30 秒)..."
+  CLT_LABEL=$(softwareupdate -l 2>&1 | awk -F'Label: ' '/Command Line Tools/{print $2}' | sort -V | tail -1)
+
+  if [ -n "$CLT_LABEL" ]; then
+    echo "  找到: $CLT_LABEL"
+    echo "  下载安装 (约 900 MB, 5-15 分钟, 终端会显示进度)..."
+    sudo softwareupdate -i "$CLT_LABEL" --verbose
+    sudo rm -f /tmp/.com.apple.dt.CommandLineTools.installondemand.in-progress
+
+    if xcode-select -p &>/dev/null && [ -x "$(xcode-select -p)/usr/bin/git" ]; then
+      echo "  ✓ CLT 安装成功 ($(xcode-select -p))"
+    else
+      echo "  ✗ 装完但 xcode-select 没识别, 请手动跑 xcode-select -p 排查"
+      exit 1
+    fi
+  else
+    # 兜底: softwareupdate 没列出 CLT, 走老 GUI 对话框路径
+    sudo rm -f /tmp/.com.apple.dt.CommandLineTools.installondemand.in-progress
+    echo "  softwareupdate 没列出 CLT, 试 GUI 对话框路径..."
+    xcode-select --install 2>&1 || true
+    echo ""
+    echo "  如未弹窗 (macOS 26+ beta 可能), 请去 App Store 装 Xcode:"
+    echo "    open 'macappstore://apps.apple.com/app/id497799835'"
+    echo "  装完后重跑此脚本"
+    exit 0
+  fi
 fi
 
 # [3/8] Homebrew
