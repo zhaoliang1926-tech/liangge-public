@@ -1,0 +1,29 @@
+{
+  "name": "@liangge/updater",
+  "version": "0.1.0-alpha",
+  "private": true,
+  "description": "亮哥发版助理 - 朋友端 daemon (PM2 守护, 不需公网)",
+  "type": "module",
+  "bin": {
+    "release-updater": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/index.ts",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@larksuiteoapi/node-sdk": "^1.64.0",
+    "@octokit/rest": "^21.0.2",
+    "execa": "^9.5.1",
+    "kleur": "^4.1.5",
+    "tar": "^7.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^25.0.0",
+    "@types/tar": "^6.1.13",
+    "typescript": "^5.4.0"
+  }
+}
