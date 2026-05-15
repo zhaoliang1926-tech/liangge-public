@@ -81,15 +81,31 @@ fi
 
 # [3/8] Homebrew
 print_step "[3/8] Homebrew"
+# 优先用绝对路径找 (PATH 可能没生效 - 之前装过没加 .zprofile 的情况)
+if [ -x /opt/homebrew/bin/brew ]; then
+  eval "$(/opt/homebrew/bin/brew shellenv)"
+elif [ -x /usr/local/bin/brew ]; then
+  eval "$(/usr/local/bin/brew shellenv)"
+fi
+
 if command -v brew &>/dev/null; then
   echo "  ✓ $(brew --version | head -1)"
 else
-  echo "  正在安装 (可能几分钟)..."
-  /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-  if [ "$ARCH" = "arm64" ] && [ -f /opt/homebrew/bin/brew ]; then
+  echo "  正在安装 (可能几分钟, 中间可能让你输 Mac 密码)..."
+  # NONINTERACTIVE=1 让 brew installer 不要求 TTY 提示
+  # sudo -v 提前缓存凭证, 避免 brew 子进程要密码时 stdin 是管道
+  sudo -v </dev/tty
+  NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+  if [ -x /opt/homebrew/bin/brew ]; then
     eval "$(/opt/homebrew/bin/brew shellenv)"
-  elif [ -f /usr/local/bin/brew ]; then
+  elif [ -x /usr/local/bin/brew ]; then
     eval "$(/usr/local/bin/brew shellenv)"
+  fi
+
+  if ! command -v brew &>/dev/null; then
+    echo "  ✗ brew 装完仍找不到, 请重启终端或手动 source .zprofile" >&2
+    exit 1
   fi
 fi
 
