@@ -7,6 +7,9 @@
 
 set -euo pipefail
 
+# 退出时打印失败位置 (curl | bash silent fail 排查)
+trap 'rc=$?; if [ $rc -ne 0 ]; then echo "" >&2; echo "✗ install.sh 在第 $LINENO 行 exit $rc 退出" >&2; fi' EXIT
+
 ONB_TOKEN=""
 PUBLIC_REPO="zhaoliang1926-tech/liangge-public"
 
@@ -176,8 +179,9 @@ cat <<EOF
 EOF
 
 echo ""
+# 关键: </dev/tty 强制从终端读, 避开 curl | bash 模式下 stdin 是管道的陷阱
 echo -n "粘贴 GH PAT 到这里: "
-read -r GITHUB_TOKEN
+read -r GITHUB_TOKEN </dev/tty
 if [ -z "$GITHUB_TOKEN" ]; then
   echo "✗ 未粘贴 token" >&2
   exit 1
