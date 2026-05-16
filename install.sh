@@ -117,8 +117,8 @@ else
   fi
 fi
 
-# [4/8] node@20 / jq / pm2
-print_step "[4/8] 基础依赖 (node@20, jq, pm2)"
+# [4/8] node@20 / jq / pm2 / gh
+print_step "[4/8] 基础依赖 (node@20, jq, pm2, gh cli)"
 brew list node@20 &>/dev/null || brew install node@20
 if [ "$ARCH" = "arm64" ]; then
   export PATH="/opt/homebrew/opt/node@20/bin:$PATH"
@@ -126,8 +126,9 @@ else
   export PATH="/usr/local/opt/node@20/bin:$PATH"
 fi
 brew list jq &>/dev/null || brew install jq
+brew list gh &>/dev/null || brew install gh
 command -v pm2 &>/dev/null || npm install -g pm2
-echo "  ✓ node $(node -v) / jq / pm2 $(pm2 --version)"
+echo "  ✓ node $(node -v) / jq / pm2 $(pm2 --version) / gh $(gh --version | head -1 | awk '{print $3}')"
 
 # [5/8] 拉 updater 客户端
 print_step "[5/8] 拉 release-updater 客户端"
@@ -182,43 +183,49 @@ echo "  ✓ friend = $FRIEND_NAME ($FRIEND_ID)"
 echo "  ✓ subscriptions:"
 echo "$SUBSCRIPTIONS" | sed 's/^/      - /'
 
-cat <<EOF
+# GitHub Device Flow 登录 (跟 install-minimal.sh 一致, 比手敲 PAT 简单 — 0 选项)
+if gh auth status &>/dev/null; then
+  GH_USER=$(gh api /user --jq .login 2>/dev/null || echo "?")
+  echo "  ✓ GitHub 已登录: $GH_USER"
+else
+  cat <<EOF
 
-请在 GitHub 给以下 repo 授权 (read contents):
+  下一步: GitHub Device Flow 授权 (比手动建 PAT 简单 — 0 选项)
+    1) 终端会显示 8 位 code (例: ABCD-1234)
+    2) 自动打开浏览器, 登录你的 GitHub 账号
+    3) 粘 8 位 code → 点 Authorize → 完事
+
 EOF
-echo "$SUBSCRIPTIONS" | while read -r repo; do
-  [ -n "$repo" ] && echo "    - zhaoliang1926-tech/$repo"
-done
-cat <<EOF
+  gh auth login --hostname github.com --git-protocol https --web --scopes "repo" </dev/tty
+  GH_USER=$(gh api /user --jq .login 2>/dev/null || echo "?")
+  echo "  ✓ GitHub 登录: $GH_USER"
+fi
 
-操作步骤:
-  1. 浏览器打开: https://github.com/settings/personal-access-tokens/new
-  2. Token name:         liangge-updater
-  3. Expiration:         90 days
-  4. Repository access:  Only select repositories → 勾选上面所列 repo
-  5. Permissions:
-       Contents:  Read-only
-       Metadata:  Read-only (强制)
-  6. 点 Generate token → 复制
-EOF
-
-echo ""
-# 关键: </dev/tty 强制从终端读, 避开 curl | bash 模式下 stdin 是管道的陷阱
-echo -n "粘贴 GH PAT 到这里: "
-read -r GITHUB_TOKEN </dev/tty
+GITHUB_TOKEN=$(gh auth token)
 if [ -z "$GITHUB_TOKEN" ]; then
-  echo "✗ 未粘贴 token" >&2
+  echo "✗ gh auth token 取不到" >&2
   exit 1
 fi
 
-HTTP=$(curl -s -o /dev/null -w "%{http_code}" \
-  -H "Authorization: token $GITHUB_TOKEN" \
-  https://api.github.com/user)
-if [ "$HTTP" != "200" ]; then
-  echo "✗ PAT 验证失败 (HTTP $HTTP), 请重新生成" >&2
-  exit 1
-fi
-echo "  ✓ PAT 验证通过"
+# 自动接受 repo 邀请
+echo ""
+echo "  自动接受 repo 邀请..."
+echo "$SUBSCRIPTIONS" | while read -r repo; do
+  [ -z "$repo" ] && continue
+  INV_ID=$(gh api /user/repository_invitations --jq ".[] | select(.repository.full_name == \"zhaoliang1926-tech/$repo\") | .id" 2>/dev/null || echo "")
+  if [ -n "$INV_ID" ]; then
+    gh api -X PATCH "/user/repository_invitations/$INV_ID" >/dev/null && \
+      echo "    ✓ 接受 zhaoliang1926-tech/$repo 邀请"
+  else
+    HTTP=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: token $GITHUB_TOKEN" \
+      "https://api.github.com/repos/zhaoliang1926-tech/$repo")
+    if [ "$HTTP" = "200" ]; then
+      echo "    ✓ zhaoliang1926-tech/$repo 已可访问"
+    else
+      echo "    ⚠ zhaoliang1926-tech/$repo HTTP $HTTP — 请让亮哥重发邀请"
+    fi
+  fi
+done
 
 # [7/8] 写 config.json + pm2 start
 print_step "[7/8] 写 config.json + 启动 daemon"
@@ -231,6 +238,7 @@ BRIDGE_CHAT_ID=$(echo "$TOKEN_JSON" | jq -r '.bridge_chat_id')
 
 jq -n \
   --arg fid "$FRIEND_ID" \
+  --arg fname "$FRIEND_NAME" \
   --arg fappid "$FEISHU_APP_ID" \
   --arg fappsecret "$FEISHU_APP_SECRET" \
   --arg utok "$UPDATER_TOKEN" \
@@ -239,6 +247,7 @@ jq -n \
   --argjson projects "$PROJECTS_JSON" \
   '{
     friend_id: $fid,
+    friend_name: $fname,
     feishu_app_id: $fappid,
     feishu_app_secret: $fappsecret,
     updater_token: $utok,
