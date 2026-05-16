@@ -7,7 +7,7 @@ import { mkdir, rm } from 'node:fs/promises'
 import type { ActiveRelease, ReleaseCommand, UpdaterConfig } from '../types.js'
 import { resolveInstallPath, getUpdaterDir } from './config.js'
 import { saveState, clearState } from './state.js'
-import { report } from './reporter.js'
+import { report, setActiveCmd } from './reporter.js'
 import { downloadTarball } from './downloader.js'
 import { scanExtractedDir, verifySha256 } from './verifier.js'
 import { backupInstallPath, pruneOldBackups, restoreFromBackup } from './backup.js'
@@ -17,6 +17,7 @@ export async function handleReleaseCommand(
   cmd: ReleaseCommand,
   cfg: UpdaterConfig,
 ): Promise<void> {
+  setActiveCmd(cmd)
   const installPath = resolveInstallPath(cfg, cmd.project)
   if (!installPath) {
     await report(cmd.release_id, 'FAILED', 'config', 0, {

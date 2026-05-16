@@ -21,6 +21,7 @@ export interface ProjectConfig {
 
 export interface UpdaterConfig {
   friend_id: string
+  friend_name?: string
   feishu_app_id: string
   feishu_app_secret: string
   updater_token: string

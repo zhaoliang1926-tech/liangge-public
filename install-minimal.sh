@@ -4,6 +4,8 @@
 # 用法:
 #   curl -fsSL https://raw.githubusercontent.com/zhaoliang1926-tech/liangge-public/main/install-minimal.sh \
 #     | bash -s -- --onb-token onb_xxx
+#
+# 朋友交互: 1) sudo 密码 (装 gh/pm2) | 2) 浏览器 GitHub Device 授权 | 完事
 
 set -euo pipefail
 trap 'rc=$?; if [ $rc -ne 0 ]; then echo "" >&2; echo "✗ 第 $LINENO 行 exit $rc 退出" >&2; fi' EXIT
@@ -42,14 +44,25 @@ for cmd in node npm curl tar python3; do
 done
 echo "  ✓ node $(node --version) / npm $(npm --version) / python3"
 
-# [2/5] 装 pm2 (如果没)
-step "[2/5] PM2"
+# [2/5] 装 pm2 + gh cli (如果没)
+step "[2/5] PM2 + GitHub CLI"
 if command -v pm2 &>/dev/null; then
-  echo "  ✓ $(pm2 --version)"
+  echo "  ✓ pm2 $(pm2 --version | head -1)"
 else
   echo "  npm install -g pm2..."
   npm install -g pm2
   echo "  ✓ pm2 $(pm2 --version)"
+fi
+if command -v gh &>/dev/null; then
+  echo "  ✓ $(gh --version | head -1)"
+else
+  if ! command -v brew &>/dev/null; then
+    echo "  ✗ 需要 brew 装 gh cli. 请先跑 install.sh (完整版)"
+    exit 1
+  fi
+  echo "  brew install gh..."
+  brew install gh
+  echo "  ✓ $(gh --version | head -1)"
 fi
 
 # [3/5] 拉 updater 客户端
@@ -75,8 +88,8 @@ echo "  装运行时依赖..."
 npm install --omit=dev --silent
 echo "  ✓ updater 已就绪"
 
-# [4/5] 解 onb_token + 引导 PAT + 写 config
-step "[4/5] 配置 + GitHub PAT"
+# [4/5] 解 onb_token + GitHub Device Flow 登录 + 自动接受 repo 邀请 + 写 config
+step "[4/5] GitHub 登录 + 接受邀请 + 配置"
 
 TOKEN_BODY=${ONB_TOKEN#onb_}
 ONB_JSON=$(echo "$TOKEN_BODY" | base64 -d 2>/dev/null) || {
@@ -87,35 +100,47 @@ FRIEND_NAME=$(echo "$ONB_JSON" | python3 -c 'import sys,json; print(json.load(sy
 SUBS=$(echo "$ONB_JSON" | python3 -c 'import sys,json; print(" ".join(json.load(sys.stdin).get("subscriptions",[])))')
 echo "  ✓ friend = $FRIEND_NAME"
 echo "  ✓ subscriptions: $SUBS"
-
-cat <<EOF
-
-请在 GitHub 给以下 repo 授权 read:
-EOF
-for repo in $SUBS; do
-  echo "    - zhaoliang1926-tech/$repo"
-done
-cat <<EOF
-
-步骤:
-  1. 浏览器打开: https://github.com/settings/personal-access-tokens/new
-  2. Token name:        liangge-updater
-  3. Expiration:        90 days
-  4. Repository access: Only select repositories → 勾上面 repo
-  5. Permissions → Contents: Read-only, Metadata: Read-only
-  6. Generate token → 复制
-EOF
-
-open "https://github.com/settings/personal-access-tokens/new" 2>/dev/null || true
-
 echo ""
-echo -n "粘 GH PAT (ghp_xxx 或 github_pat_xxx): "
-read -r GH_TOKEN </dev/tty
-[ -z "$GH_TOKEN" ] && { echo "✗ 未粘"; exit 1; }
 
-HTTP=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: token $GH_TOKEN" https://api.github.com/user)
-[ "$HTTP" = "200" ] || { echo "✗ PAT 无效 (HTTP $HTTP)"; exit 1; }
-echo "  ✓ PAT 验证通过"
+# Device Flow 登录 (如已登录会自动 skip)
+if gh auth status &>/dev/null; then
+  GH_USER=$(gh api /user --jq .login 2>/dev/null || echo "?")
+  echo "  ✓ GitHub 已登录: $GH_USER"
+else
+  cat <<EOF
+  下一步: GitHub Device Flow 授权 (比手动建 PAT 简单 — 0 选项)
+    1) 终端会显示 8 位 code (例: ABCD-1234)
+    2) 自动打开浏览器, 登录你的 GitHub 账号
+    3) 粘 8 位 code → 点 Authorize → 完事
+
+EOF
+  gh auth login --hostname github.com --git-protocol https --web --scopes "repo" </dev/tty
+  GH_USER=$(gh api /user --jq .login 2>/dev/null || echo "?")
+  echo "  ✓ GitHub 登录: $GH_USER"
+fi
+echo ""
+
+GH_TOKEN=$(gh auth token)
+[ -z "$GH_TOKEN" ] && { echo "✗ gh auth token 取不到"; exit 1; }
+
+# 自动接受 repo 邀请
+echo "  自动接受 repo 邀请..."
+for repo in $SUBS; do
+  INV_ID=$(gh api /user/repository_invitations --jq ".[] | select(.repository.full_name == \"zhaoliang1926-tech/$repo\") | .id" 2>/dev/null || echo "")
+  if [ -n "$INV_ID" ]; then
+    gh api -X PATCH "/user/repository_invitations/$INV_ID" >/dev/null && \
+      echo "    ✓ 接受 zhaoliang1926-tech/$repo 邀请"
+  else
+    HTTP=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: token $GH_TOKEN" \
+      "https://api.github.com/repos/zhaoliang1926-tech/$repo")
+    if [ "$HTTP" = "200" ]; then
+      echo "    ✓ zhaoliang1926-tech/$repo 已可访问"
+    else
+      echo "    ⚠ zhaoliang1926-tech/$repo HTTP $HTTP — 请让亮哥 \`liangge sub add $FRIEND_NAME $repo\` 重发邀请"
+    fi
+  fi
+done
+echo ""
 
 # 用 python3 安全 escape 写 config.json (不依赖 jq)
 TOKEN_BODY_FOR_PY="$TOKEN_BODY" GH_TOKEN_FOR_PY="$GH_TOKEN" python3 <<'PYEOF'
@@ -125,6 +150,7 @@ gh_token = os.environ["GH_TOKEN_FOR_PY"]
 d = json.loads(base64.b64decode(onb_body))
 cfg = {
   "friend_id": d["friend_id"],
+  "friend_name": d.get("name", d["friend_id"]),
   "feishu_app_id": d["feishu_app_id"],
   "feishu_app_secret": d["feishu_app_secret"],
   "updater_token": d["updater_token"],
@@ -168,9 +194,11 @@ if [ "$STATUS" = "online" ]; then
   cat <<EOF
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  ✓ 安装完成
+  ✓ 安装完成 — $FRIEND_NAME 的 daemon 已上线
 
-  管理命令:
+  之后: 飞书群里收到卡片, 点"同意更新" 即可自动装最新版.
+
+  管理命令 (一般用不上):
     pm2 logs release-updater    看日志
     pm2 restart release-updater 重启
     pm2 list                    看状态

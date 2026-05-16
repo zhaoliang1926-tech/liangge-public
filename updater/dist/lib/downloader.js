@@ -14,16 +14,21 @@ export async function downloadTarball(opts) {
 }
 function fetchFollow(url, token, savePath, onProgress, resolve, reject, redirectsLeft) {
     const u = new URL(url);
+    // GitHub asset 下载会 302 重定向到 S3. S3 不认 GitHub PAT, 如果带 Authorization 反而被拒返回 HTML 错误页,
+    // 写到磁盘 sha256 自然校验失败. 跟 curl -L 行为一致: 只对 GitHub host 发 Authorization, redirect 到非 github host 时去掉.
+    const headers = {
+        Accept: 'application/octet-stream',
+        'User-Agent': 'liangge-updater',
+    };
+    if (u.hostname === 'api.github.com' || u.hostname.endsWith('.github.com')) {
+        headers.Authorization = `token ${token}`;
+    }
     const req = request({
         hostname: u.hostname,
         port: u.port || 443,
         path: u.pathname + u.search,
         method: 'GET',
-        headers: {
-            Authorization: `token ${token}`,
-            Accept: 'application/octet-stream',
-            'User-Agent': 'liangge-updater',
-        },
+        headers,
     }, (res) => {
         if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
             if (redirectsLeft <= 0) {

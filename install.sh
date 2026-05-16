@@ -29,6 +29,14 @@ fi
 
 print_step() { echo ""; echo "━━━ $* ━━━"; }
 
+# 提前一次性获取 sudo 凭证 + 后台 keep-alive (每 60s 刷新 timestamp, 直到脚本退出)
+# 朋友只输 1 次 Mac 密码, 后续 brew/xcode/系统命令不再反复问
+print_step "管理员密码 (只问 1 次, 后续自动免输)"
+echo "  install 需要 sudo 装 brew / Xcode CLT. 现在输入 Mac 密码, 之后免重复:"
+sudo -v </dev/tty
+( while sudo -n true 2>/dev/null; do sleep 60; kill -0 $$ 2>/dev/null || break; done ) >/dev/null 2>&1 &
+echo "  ✓ sudo 已缓存, 后续命令免输密码"
+
 # [1/8] macOS 版本
 print_step "[1/8] macOS 版本检查"
 OS_VER=$(sw_vers -productVersion)
