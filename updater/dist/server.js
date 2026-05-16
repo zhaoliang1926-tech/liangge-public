@@ -56,9 +56,12 @@ async function handleIncoming(data, friendId) {
     }
     if (!outer.text)
         return;
+    // bridge 给 daemon 发指令时会 @ daemon bot, 形如:
+    // "<at user_id=\"ou_xxx\"></at> {json}". 解析前先剥离 @ 标签
+    const stripped = outer.text.replace(/<at\b[^>]*>.*?<\/at>/g, '').trim();
     let cmd;
     try {
-        cmd = JSON.parse(outer.text);
+        cmd = JSON.parse(stripped);
     }
     catch {
         return;
