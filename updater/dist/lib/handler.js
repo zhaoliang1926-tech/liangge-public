@@ -70,7 +70,20 @@ export async function handleReleaseCommand(cmd, cfg) {
         });
         await report(cmd.release_id, 'EXTRACTING', 'extract', 0);
         const { extractedDir, manifest } = await extractTarball(tarballPath, stagingDir);
-        const preserve = manifest?.preserve ?? ['.env', '.env.*', 'logs/**', 'ops/state/**', 'node_modules'];
+        // SYSTEM_PRESERVE: 任何项目都自动保护朋友端的私人/配置/会话/日志/节点模块.
+        // manifest.preserve 是项目额外补充. 朋友自定义放 user/ 永远不动.
+        const SYSTEM_PRESERVE = [
+            'user/**',
+            '.env',
+            '.env.*',
+            '.cc-connect/**',
+            'ops/logs/**',
+            'ops/state/**',
+            'ops/sessions-archive/**',
+            'node_modules/**',
+            '.git/**',
+        ];
+        const preserve = [...SYSTEM_PRESERVE, ...(manifest?.preserve ?? [])];
         const findings = scanExtractedDir(extractedDir);
         if (findings.length > 0) {
             throw new Error(`二次密钥扫描发现 ${findings.length} 处疑似密钥, 拒绝安装`);
