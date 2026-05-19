@@ -87,7 +87,9 @@ export function buildProgressCard(input: ProgressCardInput): string {
   ]
   if (input.error) lines.push(`**错误** ${input.error}`)
 
-  const metaLine = `release_id=${input.release_id} status=${input.status} step=${input.step ?? ''} progress=${input.progress ?? ''}`
+  // Fix #4: 在 meta line 末尾追加 error=<URLEncoded>，让 bridge poller 能解析错误信息写 SQLite + 卡片显示
+  const errPart = input.error ? ` error=${encodeURIComponent(input.error)}` : ''
+  const metaLine = `release_id=${input.release_id} status=${input.status} step=${input.step ?? ''} progress=${input.progress ?? ''}${errPart}`
 
   const card = {
     config: { wide_screen_mode: true },

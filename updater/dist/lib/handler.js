@@ -2,8 +2,9 @@
  * 主流程编排: 收到 release_command → 5 阶段执行 → 上报
  */
 import { join } from 'node:path';
-import { mkdir, rm } from 'node:fs/promises';
-import { resolveInstallPath, getUpdaterDir } from './config.js';
+import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
+import { resolveInstallPath, getUpdaterDir, loadConfig, getConfigPath } from './config.js';
 import { saveState, clearState } from './state.js';
 import { report, setActiveCmd } from './reporter.js';
 import { downloadTarball } from './downloader.js';
@@ -12,12 +13,27 @@ import { backupInstallPath, pruneOldBackups, restoreFromBackup } from './backup.
 import { extractTarball, mergeWithPreserve, runPostInstall } from './installer.js';
 export async function handleReleaseCommand(cmd, cfg) {
     setActiveCmd(cmd);
-    const installPath = resolveInstallPath(cfg, cmd.project);
+    // Fix #2: 每次进入 handler 重新读 config，朋友改 config.json 后无需 pm2 restart
+    let liveCfg;
+    try {
+        liveCfg = loadConfig();
+    }
+    catch {
+        liveCfg = cfg;
+    }
+    // Fix #1: install_path 缺失时自动用 ~/<project> 并写回 config，避免首装必败
+    let installPath = resolveInstallPath(liveCfg, cmd.project);
     if (!installPath) {
-        await report(cmd.release_id, 'FAILED', 'config', 0, {
-            error: `本地未配置 ${cmd.project} 的 install_path`,
-        });
-        return;
+        installPath = join(homedir(), cmd.project);
+        console.log(`[handler] ${cmd.project}: install_path 未配置，自动设为 ${installPath}`);
+        liveCfg.projects = liveCfg.projects ?? {};
+        liveCfg.projects[cmd.project] = { install_path: `~/${cmd.project}` };
+        try {
+            await writeFile(getConfigPath(), JSON.stringify(liveCfg, null, 2), { mode: 0o600 });
+        }
+        catch (e) {
+            console.error(`[handler] 写回 config.json 失败:`, e.message);
+        }
     }
     if (!cmd.tarball_url || !cmd.sha256) {
         await report(cmd.release_id, 'FAILED', 'config', 0, {
